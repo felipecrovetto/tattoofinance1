@@ -1,0 +1,230 @@
+
+{% extends "base.html" %}
+
+{% block title %}Dashboard - TattooFi{% endblock %}
+
+{% block content %}
+<div class="dashboard-container">
+    <div class="dashboard-header">
+        <h1 class="page-title">Dashboard Financiero</h1>
+        <div class="filter-controls">
+            <button class="filter-btn active" data-filter="day">Hoy</button>
+            <button class="filter-btn" data-filter="month">Este Mes</button>
+            <button class="filter-btn" data-filter="year">Este Año</button>
+        </div>
+    </div>
+    
+    <div class="kpi-cards">
+        <div class="kpi-card income">
+            <div class="kpi-icon">💰</div>
+            <div class="kpi-content">
+                <h3 class="kpi-title">Ingresos Totales</h3>
+                <p class="kpi-value" id="totalIncome">$0 CLP</p>
+            </div>
+        </div>
+        
+        <div class="kpi-card expense">
+            <div class="kpi-icon">💸</div>
+            <div class="kpi-content">
+                <h3 class="kpi-title">Gastos Totales</h3>
+                <p class="kpi-value" id="totalExpense">$0 CLP</p>
+            </div>
+        </div>
+        
+        <div class="kpi-card profit">
+            <div class="kpi-icon">📈</div>
+            <div class="kpi-content">
+                <h3 class="kpi-title">Beneficio Neto</h3>
+                <p class="kpi-value" id="netProfit">$0 CLP</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="charts-container">
+        <div class="chart-card">
+            <h3 class="chart-title">Ingresos vs Gastos</h3>
+            <canvas id="incomeExpenseChart"></canvas>
+        </div>
+        
+        <div class="chart-card">
+            <h3 class="chart-title">Distribución de Gastos</h3>
+            <canvas id="expenseDistributionChart"></canvas>
+        </div>
+    </div>
+    
+    <a href="{{ url_for('transactions') }}" class="fab">
+        <span class="fab-icon">+</span>
+        <span class="fab-glow"></span>
+    </a>
+</div>
+
+<script>
+let incomeExpenseChart, expenseDistributionChart;
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadDashboardData('day');
+    
+    // Filter buttons
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            loadDashboardData(this.dataset.filter);
+        });
+    });
+});
+
+function loadDashboardData(filter) {
+    fetch(`/api/dashboard_data?filter=${filter}`)
+        .then(response => response.json())
+        .then(data => {
+            updateKPIs(data);
+            updateCharts(data);
+        })
+        .catch(error => {
+            console.error('Error loading dashboard data:', error);
+        });
+}
+
+function updateKPIs(data) {
+    const formatter = new Intl.NumberFormat('es-CL', {
+        style: 'currency',
+        currency: 'CLP',
+        minimumFractionDigits: 0
+    });
+    
+    animateValue('totalIncome', 0, data.total_income, 1000, formatter);
+    animateValue('totalExpense', 0, data.total_expense, 1000, formatter);
+    animateValue('netProfit', 0, data.net_profit, 1000, formatter);
+}
+
+function animateValue(elementId, start, end, duration, formatter) {
+    const element = document.getElementById(elementId);
+    const startTime = performance.now();
+    
+    function updateValue(currentTime) {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const current = start + (end - start) * progress;
+        
+        element.textContent = formatter.format(current);
+        
+        if (progress < 1) {
+            requestAnimationFrame(updateValue);
+        }
+    }
+    
+    requestAnimationFrame(updateValue);
+}
+
+function updateCharts(data) {
+    // Income vs Expense Chart
+    const ctx1 = document.getElementById('incomeExpenseChart').getContext('2d');
+    
+    if (incomeExpenseChart) {
+        incomeExpenseChart.destroy();
+    }
+    
+    incomeExpenseChart = new Chart(ctx1, {
+        type: 'bar',
+        data: {
+            labels: ['Ingresos', 'Gastos'],
+            datasets: [{
+                label: 'Monto (CLP)',
+                data: [data.total_income, data.total_expense],
+                backgroundColor: [
+                    'rgba(57, 255, 20, 0.8)',
+                    'rgba(255, 7, 58, 0.8)'
+                ],
+                borderColor: [
+                    'rgba(57, 255, 20, 1)',
+                    'rgba(255, 7, 58, 1)'
+                ],
+                borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        color: '#888888',
+                        callback: function(value) {
+                            return new Intl.NumberFormat('es-CL', {
+                                style: 'currency',
+                                currency: 'CLP',
+                                minimumFractionDigits: 0
+                            }).format(value);
+                        }
+                    },
+                    grid: {
+                        color: 'rgba(136, 136, 136, 0.1)'
+                    }
+                },
+                x: {
+                    ticks: {
+                        color: '#888888'
+                    },
+                    grid: {
+                        display: false
+                    }
+                }
+            }
+        }
+    });
+    
+    // Expense Distribution Chart
+    const ctx2 = document.getElementById('expenseDistributionChart').getContext('2d');
+    
+    if (expenseDistributionChart) {
+        expenseDistributionChart.destroy();
+    }
+    
+    const categories = Object.keys(data.expense_by_category);
+    const amounts = Object.values(data.expense_by_category);
+    
+    expenseDistributionChart = new Chart(ctx2, {
+        type: 'doughnut',
+        data: {
+            labels: categories,
+            datasets: [{
+                data: amounts,
+                backgroundColor: [
+                    '#F900F9',
+                    '#00FFFF',
+                    '#39FF14',
+                    '#FF073A',
+                    '#FF6B35',
+                    '#9B59B6',
+                    '#F39C12',
+                    '#1ABC9C',
+                    '#E74C3C'
+                ],
+                borderWidth: 0
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        color: '#888888',
+                        usePointStyle: true,
+                        padding: 20
+                    }
+                }
+            }
+        }
+    });
+}
+</script>
+{% endblock %}
